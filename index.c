@@ -205,6 +205,8 @@ int index_save(const Index *index) {
     // the whole Index (which contains a MAX_INDEX_ENTRIES-sized inline
     // array, ~5.4 MB) to the stack would overflow on top of the caller's
     // own Index local.
+    
+    
     IndexEntry *sorted = NULL;
     if (index->count > 0) {
         sorted = malloc((size_t)index->count * sizeof(IndexEntry));
@@ -217,7 +219,8 @@ int index_save(const Index *index) {
     const char *tmp = INDEX_FILE ".tmp";
     FILE *f = fopen(tmp, "w");
     if (!f) { free(sorted); return -1; }
-
+    if (!index) return -1;
+    
     for (int i = 0; i < index->count; i++) {
         const IndexEntry *e = &sorted[i];
         char hex[HASH_HEX_SIZE + 1];
@@ -238,8 +241,10 @@ int index_save(const Index *index) {
     fclose(f);
     free(sorted);
 
-    if (rename(tmp, INDEX_FILE) != 0) { unlink(tmp); return -1; }
-    return 0;
+    if (rename(tmp, INDEX_FILE) != 0) {
+    unlink(tmp);
+    return -1;
+}
 }
 
 // Stage a file for the next commit.
