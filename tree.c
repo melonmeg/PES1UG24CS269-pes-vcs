@@ -83,6 +83,75 @@ static int compare_tree_entries(const void *a, const void *b) {
     return strcmp(((const TreeEntry *)a)->name, ((const TreeEntry *)b)->name);
 }
 
+// Sort index entries alphabetically by path so entries sharing a
+// subdirectory prefix become contiguous — enables single-pass grouping
+// during recursive tree construction.
+static int compare_index_entries(const void *a, const void *b) {
+    return strcmp(((const IndexEntry *)a)->path, ((const IndexEntry *)b)->path);
+}
+
+// Build the tree for entries[lo..hi) whose paths all share the first
+// prefix_len characters. Writes the serialized tree to the object store
+// and returns its hash in *out_hash. Recurses to build subtrees.
+static int build_tree_level(const IndexEntry *entries, int lo, int hi,
+                            int prefix_len, ObjectID *out_hash) {
+    Tree tree;
+    tree.count = 0;
+
+    int i = lo;
+    while (i < hi) {
+        if (tree.count >= MAX_TREE_ENTRIES) return -1;
+        const char *rest = entries[i].path + prefix_len;
+        const char *slash = strchr(rest, '/');
+
+        if (!slash) {
+            // Leaf: the remaining path has no separator, so this entry is
+            // a file directly in the current directory.
+            TreeEntry *e = &tree.entries[tree.count++];
+            e->mode = entries[i].mode;
+            e->hash = entries[i].hash;
+            snprintf(e->name, sizeof(e->name), "%s", rest);
+            i++;
+        } else {
+            // Subdirectory: find the run of siblings [i..j) sharing this
+            // same next-component prefix, then recurse to build the subtree.
+            size_t comp_len = (size_t)(slash - rest);
+            int child_prefix_len = prefix_len + (int)comp_len + 1;
+
+            int j = i + 1;
+            while (j < hi) {
+                const char *rj = entries[j].path + prefix_len;
+                if (strlen(rj) > comp_len && rj[comp_len] == '/' &&
+                    memcmp(rj, rest, comp_len) == 0) {
+                    j++;
+                } else {
+                    break;
+                }
+            }
+
+            ObjectID subtree_hash = {{0}};
+            if (build_tree_level(entries, i, j, child_prefix_len,
+                                 &subtree_hash) != 0) {
+                return -1;
+            }
+
+            TreeEntry *e = &tree.entries[tree.count++];
+            e->mode = MODE_DIR;
+            e->hash = subtree_hash;
+            snprintf(e->name, sizeof(e->name), "%.*s", (int)comp_len, rest);
+            i = j;
+        }
+    }
+
+    void *data = NULL;
+    size_t len = 0;
+    if (tree_serialize(&tree, &data, &len) != 0) return -1;
+
+    int rc = object_write(OBJ_TREE, data, len, out_hash);
+    free(data);
+    return rc;
+}
+
 // Serialize a Tree struct into binary format for storage.
 // Caller must free(*data_out).
 // Returns 0 on success, -1 on error.
