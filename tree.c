@@ -10,11 +10,17 @@
 //   "100644 hello.txt\0" followed by 32 raw bytes of SHA-256
 
 #include "tree.h"
+#include "index.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
+
+/* Forward decls: no object.h in template; index_load is weak because
+   index.o is not linked into test_tree. */
+extern int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out);
+extern int index_load(Index *index) __attribute__((weak));
 
 // ─── Mode Constants ─────────────────────────────────────────────────────────
 
