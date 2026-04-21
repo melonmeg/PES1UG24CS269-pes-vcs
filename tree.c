@@ -205,6 +205,7 @@ int tree_serialize(const Tree *tree, void **data_out, size_t *len_out) {
 //
 // Returns 0 on success, -1 on error.
 int tree_from_index(ObjectID *id_out) {
+    if (!id_out) return -1;
     Index index;
     if (index_load(&index) != 0) return -1;
 
