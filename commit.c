@@ -194,8 +194,33 @@ int head_update(const ObjectID *new_commit) {
 //
 // Returns 0 on success, -1 on error.
 int commit_create(const char *message, ObjectID *commit_id_out) {
-    // TODO: Implement commit creation
-    // (See Lab Appendix for logical steps)
-    (void)message; (void)commit_id_out;
-    return -1;
+    Commit c;
+
+    // Snapshot the staged state into a tree hierarchy. This walks the
+    // index, writes tree objects, and returns the root tree's hash.
+    if (tree_from_index(&c.tree) != 0) return -1;
+
+    // Link to prior history. head_read returns -1 when no commit exists
+    // yet (missing HEAD or empty branch file) — that's the root-commit
+    // case, not an error. Leave c.parent uninitialized; commit_serialize
+    // consults has_parent before emitting the "parent <hex>" line.
+    c.has_parent = (head_read(&c.parent) == 0) ? 1 : 0;
+
+    // Identity + timing + message round out the commit payload.
+    snprintf(c.author, sizeof(c.author), "%s", pes_author());
+    c.timestamp = (uint64_t)time(NULL);
+    snprintf(c.message, sizeof(c.message), "%s", message);
+
+    // Serialize and persist as a commit object. The serializer mallocs
+    // the buffer; free it unconditionally once object_write is done.
+    void *data = NULL;
+    size_t len = 0;
+    if (commit_serialize(&c, &data, &len) != 0) return -1;
+    int rc = object_write(OBJ_COMMIT, data, len, commit_id_out);
+    free(data);
+    if (rc != 0) return -1;
+
+    // Publish: move the current branch ref to the new commit. This is the
+    // atomic pointer swing that makes the commit visible to `pes log`.
+    return head_update(commit_id_out);
 }
